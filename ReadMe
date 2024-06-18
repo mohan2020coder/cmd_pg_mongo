@@ -1,1 +1,13 @@
-pass config.yml
+A simple command-line tool to read configuration from config.yml for database connection settings and other configurations
+and you can achieve the goal of fetching data from PostgreSQL and inserting it into MongoDB
+
+
+run the docker compose if you want dummy mongodb to test it...
+
+
+
+#go run main.go 
+
+or 
+
+#go run main.go -config=custom_config.yml

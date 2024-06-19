@@ -16,17 +16,18 @@ import (
 // Config struct to hold database configuration
 type Config struct {
 	Postgres struct {
-		Host      string `mapstructure:"host"`
-		Port      int    `mapstructure:"port"`
-		Database  string `mapstructure:"database"`
-		User      string `mapstructure:"user"`
-		Password  string `mapstructure:"password"`
-		TableName string `mapstructure:"table_name"`
+		Host      string   `mapstructure:"host"`
+		Port      int      `mapstructure:"port"`
+		Database  string   `mapstructure:"database"`
+		User      string   `mapstructure:"user"`
+		Password  string   `mapstructure:"password"`
+		Tables    []string `mapstructure:"tables"`
+		AllTables bool     `mapstructure:"all_tables"`
 	} `mapstructure:"postgres"`
+
 	MongoDB struct {
-		URI        string `mapstructure:"uri"`
-		Database   string `mapstructure:"database"`
-		Collection string `mapstructure:"collection"`
+		URI      string `mapstructure:"uri"`
+		Database string `mapstructure:"database"`
 	} `mapstructure:"mongodb"`
 }
 
@@ -55,18 +56,23 @@ func main() {
 	}
 	defer mongoClient.Disconnect(context.Background())
 
-	// Specify PostgreSQL table name and MongoDB database/collection
-	pgTableName := config.Postgres.TableName
-	mongoDBName := config.MongoDB.Database
-	mongoCollectionName := config.MongoDB.Collection
-
-	// Fetch data from PostgreSQL and insert into MongoDB
-	err = fetchDataFromPostgresAndInsertToMongo(pgConn, mongoClient, pgTableName, mongoDBName, mongoCollectionName)
-	if err != nil {
-		log.Fatalf("Error transferring data: %v\n", err)
+	if config.Postgres.AllTables {
+		// Fetch all table names from PostgreSQL
+		tables, err := getAllPostgresTables(pgConn, config.Postgres.Database)
+		if err != nil {
+			log.Fatalf("Error fetching table names from PostgreSQL: %v\n", err)
+		}
+		config.Postgres.Tables = tables
 	}
 
-	fmt.Println("Data transfer from PostgreSQL to MongoDB completed successfully.")
+	// Fetch data from PostgreSQL and insert into MongoDB
+	for _, table := range config.Postgres.Tables {
+		err = fetchDataFromPostgresAndInsertToMongo(pgConn, mongoClient, table, config.MongoDB.Database, table)
+		if err != nil {
+			log.Fatalf("Error transferring data from table %s: %v\n", table, err)
+		}
+		fmt.Printf("Data transfer from PostgreSQL table %s to MongoDB completed successfully.\n", table)
+	}
 }
 
 // loadConfig reads the config file and parses it into a Config struct
@@ -120,6 +126,38 @@ func connectToMongoDB(mongoConfig Config) (*mongo.Client, error) {
 	}
 
 	return client, nil
+}
+
+// getAllPostgresTables retrieves all table names from the PostgreSQL database
+func getAllPostgresTables(pgConn *pgxpool.Pool, databaseName string) ([]string, error) {
+	ctx := context.Background()
+
+	query := `
+		SELECT table_name
+		FROM information_schema.tables
+		WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+	`
+
+	rows, err := pgConn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("error querying PostgreSQL for table names: %v", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("error scanning table name: %v", err)
+		}
+		tables = append(tables, tableName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating table names: %v", err)
+	}
+
+	return tables, nil
 }
 
 // fetchDataFromPostgresAndInsertToMongo retrieves data from PostgreSQL and inserts it into MongoDB

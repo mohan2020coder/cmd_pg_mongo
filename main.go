@@ -23,6 +23,7 @@ type Config struct {
 		Password  string   `mapstructure:"password"`
 		Tables    []string `mapstructure:"tables"`
 		AllTables bool     `mapstructure:"all_tables"`
+		SkipEmpty bool     `mapstructure:"skip_empty"`
 	} `mapstructure:"postgres"`
 
 	MongoDB struct {
@@ -67,11 +68,13 @@ func main() {
 
 	// Fetch data from PostgreSQL and insert into MongoDB
 	for _, table := range config.Postgres.Tables {
-		err = fetchDataFromPostgresAndInsertToMongo(pgConn, mongoClient, table, config.MongoDB.Database, table)
+		fmt.Printf("Transferring data from table %s...\n", table)
+		err = fetchDataFromPostgresAndInsertToMongo(pgConn, mongoClient, table, config.MongoDB.Database, table, config.Postgres.SkipEmpty)
 		if err != nil {
-			log.Fatalf("Error transferring data from table %s: %v\n", table, err)
+			log.Printf("Error transferring data from table %s: %v\n", table, err)
+		} else {
+			fmt.Printf("Data transfer from PostgreSQL table %s to MongoDB completed successfully.\n", table)
 		}
-		fmt.Printf("Data transfer from PostgreSQL table %s to MongoDB completed successfully.\n", table)
 	}
 }
 
@@ -161,7 +164,7 @@ func getAllPostgresTables(pgConn *pgxpool.Pool, databaseName string) ([]string, 
 }
 
 // fetchDataFromPostgresAndInsertToMongo retrieves data from PostgreSQL and inserts it into MongoDB
-func fetchDataFromPostgresAndInsertToMongo(pgConn *pgxpool.Pool, mongoClient *mongo.Client, pgTableName, mongoDBName, mongoCollectionName string) error {
+func fetchDataFromPostgresAndInsertToMongo(pgConn *pgxpool.Pool, mongoClient *mongo.Client, pgTableName, mongoDBName, mongoCollectionName string, skipEmpty bool) error {
 	ctx := context.Background()
 
 	// PostgreSQL query
@@ -171,11 +174,20 @@ func fetchDataFromPostgresAndInsertToMongo(pgConn *pgxpool.Pool, mongoClient *mo
 	}
 	defer rows.Close()
 
+	// Check if rows are empty
+	if !rows.Next() {
+		if skipEmpty {
+			fmt.Printf("Table %s is empty. Skipping...\n", pgTableName)
+			return nil
+		}
+		fmt.Printf("Table %s is empty. Creating empty collection in MongoDB...\n", pgTableName)
+	}
+
 	// MongoDB collection
 	mongoCollection := mongoClient.Database(mongoDBName).Collection(mongoCollectionName)
 
 	// Iterate through PostgreSQL rows and insert into MongoDB
-	for rows.Next() {
+	for {
 		// Get column names
 		fields := rows.FieldDescriptions()
 		columnValues := make([]interface{}, len(fields))
@@ -202,6 +214,10 @@ func fetchDataFromPostgresAndInsertToMongo(pgConn *pgxpool.Pool, mongoClient *mo
 		_, err := mongoCollection.InsertOne(ctx, document)
 		if err != nil {
 			return fmt.Errorf("error inserting document into MongoDB: %v", err)
+		}
+
+		if !rows.Next() {
+			break
 		}
 	}
 

@@ -8,7 +8,7 @@ postgres:
     - table1
     - table2
   all_tables: true # Set this to true to import all tables
-
+  skip_empty: false   # Set this to true to skip empty tables
 mongodb:
   uri: mongodb://localhost:27017
   database: ksat

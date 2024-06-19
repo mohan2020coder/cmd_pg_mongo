@@ -174,40 +174,51 @@ func fetchDataFromPostgresAndInsertToMongo(pgConn *pgxpool.Pool, mongoClient *mo
 	}
 	defer rows.Close()
 
-	// Check if rows are empty
+	// Check if the table is empty
 	if !rows.Next() {
 		if skipEmpty {
 			fmt.Printf("Table %s is empty. Skipping...\n", pgTableName)
 			return nil
+		} else {
+			// Create an empty collection
+			mongoCollection := mongoClient.Database(mongoDBName).Collection(mongoCollectionName)
+			_, err := mongoCollection.InsertOne(ctx, bson.D{})
+			if err != nil {
+				return fmt.Errorf("error creating empty collection in MongoDB: %v", err)
+			}
+			fmt.Printf("Table %s is empty. Created empty collection in MongoDB.\n", pgTableName)
+			return nil
 		}
-		fmt.Printf("Table %s is empty. Creating empty collection in MongoDB...\n", pgTableName)
 	}
 
 	// MongoDB collection
 	mongoCollection := mongoClient.Database(mongoDBName).Collection(mongoCollectionName)
 
+	// Get column names
+	fields := rows.FieldDescriptions()
+	columnNames := make([]string, len(fields))
+	for i, field := range fields {
+		columnNames[i] = string(field.Name)
+	}
+
 	// Iterate through PostgreSQL rows and insert into MongoDB
 	for {
-		// Get column names
-		fields := rows.FieldDescriptions()
 		columnValues := make([]interface{}, len(fields))
 		columnPointers := make([]interface{}, len(fields))
-
-		// Prepare a map to store values for dynamic document creation
-		document := bson.D{}
 
 		for i := range columnValues {
 			columnPointers[i] = &columnValues[i]
 		}
 
-		// Scan row into the document
+		// Scan row into the column values
 		if err := rows.Scan(columnPointers...); err != nil {
 			return fmt.Errorf("error scanning PostgreSQL row: %v", err)
 		}
 
-		// Populate document dynamically
-		for i, field := range fields {
-			document = append(document, bson.E{Key: string(field.Name), Value: columnValues[i]})
+		// Create document
+		document := bson.D{}
+		for i, columnName := range columnNames {
+			document = append(document, bson.E{Key: columnName, Value: columnValues[i]})
 		}
 
 		// Insert document into MongoDB

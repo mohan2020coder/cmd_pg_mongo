@@ -11,3 +11,10 @@ run the docker compose if you want dummy mongodb to test it...
 or 
 
 #go run main.go -config=custom_config.yml
+
+
+chmod +x build.sh
+./build.sh
+
+
+>builds folder will container will contains all the files

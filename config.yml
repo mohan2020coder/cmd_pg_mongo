@@ -1,14 +1,4 @@
-# postgres:
-#   host: localhost
-#   port: 5432
-#   database: kerc
-#   user: postgres
-#   password: postgres
-#   table_name: act
-# mongodb:
-#   uri: mongodb://localhost:27017
-#   database: kerc
-#   collection: act
+
 postgres:
   host: localhost
   port: 5432
